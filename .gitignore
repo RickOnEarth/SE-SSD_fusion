@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+#self define
+d2_detection_data_yolo_nms_0.6/
+.idea

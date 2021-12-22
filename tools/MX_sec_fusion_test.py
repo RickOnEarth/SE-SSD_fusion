@@ -1,9 +1,13 @@
+"""
+python tools/MX_sec_fusion_test.py --config=examples/second/configs/MX_fusion_config.py --checkpoint=epoch_60.pth
+"""
 import argparse
 import logging
 import os
 import os.path as osp
 import shutil
 import tempfile
+import pickle
 
 import torch
 import torch.distributed as dist
@@ -23,6 +27,10 @@ from det3d.utils.dist.dist_common import (all_gather, get_rank, get_world_size, 
 from tqdm import tqdm
 from det3d.torchie.parallel import collate, collate_kitti
 from torch.utils.data import DataLoader
+
+from fusion.preprocess_for_fusion import preprocess_for_fusion
+from fusion.d2_reader import detection_2d_reader
+from fusion.models import fusion
 
 def get_dataset_ids(mode='val'):
     assert mode in ['test', 'val', 'trainval', 'val']
@@ -47,6 +55,24 @@ def test(dataloader, model, save_dir="", device="cuda", distributed=False,):
     if not is_main_process(): # False
         return
     return dataset.evaluation(predictions, str(save_dir))
+
+
+def inference(dataloader, model, device="cuda", distributed=False,):
+    if distributed:
+        model = model.module
+    dataset = dataloader.dataset         # det3d.datasets.kitti.kitti.KittiDataset
+    device = torch.device(device)        # device(type='cuda')
+    num_devices = get_world_size()       # 1
+
+    detections = compute_on_dataset(model, dataloader, device)
+    synchronize()
+    predictions = _accumulate_predictions_from_multiple_gpus(detections)
+
+    if not is_main_process(): # False
+        return
+    dt_annos = dataset.convert_detection_to_kitti_annos(predictions)
+
+    return dt_annos
 
 
 # todo: modified by zhengwu, to eval point cloud with assigned id on trained model with single gpu;
@@ -133,7 +159,6 @@ def compute_on_dataset(model, data_loader, device, timer=None, show=False):
         if i == 1:
             prog_bar = torchie.ProgressBar(len(data_loader.dataset) - 1)
         example = example_to_device(batch, device=device)
-
         with torch.no_grad():
             outputs = model(example, return_loss=False, rescale=not show)   # list_length=batch_size: 8
             for output in outputs:                   # output.keys(): ['box3d_lidar', 'scores', 'label_preds', 'metadata']
@@ -164,13 +189,15 @@ data_root = "/data/zhengwu"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="MegDet test detector")
-    parser.add_argument("--config", default='../examples/second/configs/config.py', help="test config file path")
+    #parser.add_argument("--config", default='./examples/second/configs/config.py', help="test config file path")
+    parser.add_argument("--config", default='', help="test config file path")
     parser.add_argument("--checkpoint", default='',  help="checkpoint file")
     parser.add_argument("--out", default='out.pkl', help="output result file")
     parser.add_argument("--json_out",  default='json_out.json', help="output result file name without extension", type=str)
     parser.add_argument("--eval", type=str, nargs="+", choices=["proposal", "proposal_fast", "bbox", "segm", "keypoints"], help="eval types",)
     parser.add_argument("--show", action="store_true", help="show results")
     parser.add_argument("--txt_result", default=True, help="save txt")
+    parser.add_argument("--save_dir", default=None, help="dir for writing some results")        #MX
     parser.add_argument("--tmpdir", help="tmp dir for writing some results")
     parser.add_argument("--launcher", choices=["none", "pytorch", "slurm", "mpi"], default="none",help="job launcher",)
     parser.add_argument("--local_rank", type=int, default=0)
@@ -199,9 +226,7 @@ def main():
 
     # cfg.model.pretrained = None
     # cfg.data.test.test_mode = True
-    import pdb
-    pdb.set_trace()
-    cfg.data.val.test_mode = True
+    #cfg.data.val.test_mode = True
 
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == "none":
@@ -211,7 +236,8 @@ def main():
         init_dist(args.launcher, **cfg.dist_params)
 
     # build the dataloader, TODO: support multiple images per gpu (only minor changes are needed)
-    dataset = build_dataset(cfg.data.val)
+    #dataset = build_dataset(cfg.data.val)
+    dataset = build_dataset(cfg.data.test)
     batch_size = cfg.data.samples_per_gpu
     num_workers = cfg.data.workers_per_gpu
     data_loader = DataLoader(dataset, batch_size=batch_size, sampler=None, num_workers=num_workers, collate_fn=collate_kitti, shuffle=False,)
@@ -227,47 +253,51 @@ def main():
     else:
         model.CLASSES = dataset.CLASSES
 
-    model = MegDataParallel(model, device_ids=[0])
+    #model = MegDataParallel(model, device_ids=[0])
+
+    device = "cuda:0"
+    model.cuda()
+    model.eval()
+
+    fusion_layer = fusion.fusion()
+    fusion_layer.load_state_dict(torch.load('/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_second/pretrained/fusion_layer-11136.tckpt'))
+    fusion_layer.cuda()
+    fusion_layer.eval()
+
+    cpu_device = torch.device("cpu")
+
+    results_dict = {}
     if args.eval_id is None:
-        result_dict, detections = test(data_loader, model, save_dir=None, distributed=distributed)
+        for i, batch in enumerate(data_loader):
+            if i == 1:
+                prog_bar = torchie.ProgressBar(len(data_loader.dataset) - 1)
+            example = example_to_device(batch, device=device)
+            with torch.no_grad():
+                middle_outputs = model(example, return_loss=False, rescale=True)
+            processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs)
 
-        # for k, v in result_dict["results"].items():
-        #     print(f"Evaluation {k}: {v}")
+            grid_width = middle_outputs[0]['cls_preds'].shape[1]
+            grid_height = middle_outputs[0]['cls_preds'].shape[2]
+            num_anchors = grid_width * grid_height * 2               #SECOND:70400，pointpillars:107136
+            fusion_cls_preds, flag = fusion_layer(non_empty_iou_test_tensor.cuda(), non_empty_tensor_index_tensor.cuda(), num_anchors)
 
-        for k, v in result_dict["results"].items():
-            print(f"Evaluation {k}: {v}")
-            # f.write(f"\nEvaluation {k}: {v}\n")
+            fusion_cls_preds_reshape = fusion_cls_preds.reshape(1, grid_width, grid_height, 2)      #SECOND：(1,200,176,2) #pointpillars:((1,248,216,2))
+            middle_outputs[0].update({'cls_preds':fusion_cls_preds_reshape})
 
-        for k, v in result_dict["results_2"].items():
-            print(f"Evaluation {k}: {v}")
-            # f.write(f"\nEvaluation {k}: {v}\n")
+            outputs = model.bbox_head.predict(example, middle_outputs, model.test_cfg)
+            for output in outputs:                          # output.keys(): ['box3d_lidar', 'scores', 'label_preds', 'metadata']
+                token = output["metadata"]["token"]         # token should be the image_id
+                for k, v in output.items():
+                    if k not in ["metadata",]:
+                        output[k] = v.to(cpu_device)
+                results_dict.update({token: output,})
 
-        # save mAP results to out.pkl file.
-        # rank, _ = get_dist_info()
-        # if args.out and rank == 0:
-        #     print("\nwriting results to {}".format(args.out))
-        #     torchie.dump(detections, os.path.join(cfg.work_dir, args.out))
+            if i >= 1:
+                prog_bar.update()
 
-        # if args.txt_result:  # True
-        #     res_dir = os.path.join(cfg.work_dir, "predictions")
-        #     os.makedirs(res_dir, exist_ok=True)
-        #     for dt in detections:
-        #         with open(os.path.join(res_dir, "%06d.txt" % int(dt["metadata"]["token"])), "w") as fout:
-        #             lines = kitti.annos_to_kitti_label(dt)
-        #             for line in lines:
-        #                 fout.write(line + "\n")
-
-        #     gt_labels_dir = data_root + "/KITTI/object/training/label_2"
-        #     label_split_file = data_root + "/KITTI/ImageSets/val.txt"
-        #     # todo: this evaluation is different from previous one
-        #     ap_result_str, ap_dict = kitti_evaluate(gt_labels_dir, res_dir, label_split_file=label_split_file, current_class=0,)
-        #     print(ap_result_str)
-
-    else:
-        assert type(args.eval_id) is list
-        test_v2(data_loader, model, distributed=distributed, eval_id=args.eval_id, vis_id=args.vis_id)
-
-
+        import pdb
+        pdb.set_trace()
+        print("inference done!")
 
 if __name__ == "__main__":
     main()

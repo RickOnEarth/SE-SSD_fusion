@@ -1407,3 +1407,60 @@ def change_box3d_center_(box3d, src, dst):
     dst = np.array(dst, dtype=box3d.dtype)
     src = np.array(src, dtype=box3d.dtype)
     box3d[..., :3] += box3d[..., 3:6] * (dst - src)
+
+
+# pang added to build the tensor for the second stage of training
+@numba.jit(nopython=True,parallel=True)
+def build_stage2_training(boxes, query_boxes, criterion, scores_3d, scores_2d, dis_to_lidar_3d,overlaps,tensor_index):
+    N = boxes.shape[0] #70400
+    K = query_boxes.shape[0] #30
+    ind=0
+    ind_max = ind
+    for k in range(K):
+        qbox_area = ((query_boxes[k, 2] - query_boxes[k, 0]) *
+                     (query_boxes[k, 3] - query_boxes[k, 1]))
+        for n in range(N):
+            iw = (min(boxes[n, 2], query_boxes[k, 2]) -
+                  max(boxes[n, 0], query_boxes[k, 0]))
+            if iw > 0:
+                ih = (min(boxes[n, 3], query_boxes[k, 3]) -
+                      max(boxes[n, 1], query_boxes[k, 1]))
+                if ih > 0:
+                    if criterion == -1:
+                        ua = (
+                            (boxes[n, 2] - boxes[n, 0]) *
+                            (boxes[n, 3] - boxes[n, 1]) + qbox_area - iw * ih)
+                    elif criterion == 0:
+                        ua = ((boxes[n, 2] - boxes[n, 0]) *
+                              (boxes[n, 3] - boxes[n, 1]))
+                    elif criterion == 1:
+                        ua = qbox_area
+                    else:
+                        ua = 1.0
+                    overlaps[ind,0] = iw * ih / ua
+                    overlaps[ind,1] = scores_3d[n,0]
+                    overlaps[ind,2] = scores_2d[k,0]
+                    overlaps[ind,3] = dis_to_lidar_3d[n,0]
+                    tensor_index[ind,0] = k
+                    tensor_index[ind,1] = n
+                    ind = ind+1
+
+                elif k==K-1:
+                    overlaps[ind,0] = -10
+                    overlaps[ind,1] = scores_3d[n,0]
+                    overlaps[ind,2] = -10
+                    overlaps[ind,3] = dis_to_lidar_3d[n,0]
+                    tensor_index[ind,0] = k
+                    tensor_index[ind,1] = n
+                    ind = ind+1
+            elif k==K-1:
+                overlaps[ind,0] = -10
+                overlaps[ind,1] = scores_3d[n,0]
+                overlaps[ind,2] = -10
+                overlaps[ind,3] = dis_to_lidar_3d[n,0]
+                tensor_index[ind,0] = k
+                tensor_index[ind,1] = n
+                ind = ind+1
+    if ind > ind_max:
+        ind_max = ind
+    return overlaps, tensor_index, ind
