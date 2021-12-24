@@ -1,4 +1,4 @@
-##SE-SSD_CLOCs_fusion  
+## SE-SSD_CLOCs_fusion  
 
 ### Train
 SECOND_based
@@ -12,7 +12,7 @@ $ cd SE-SSD
 $ python tools/MX_fusion_train.py --config=examples/point_pillars/configs/MX_fusion_train_config.py --checkpoint=epoch_60.pth
 ```
 
-###Eval  
+### Eval  
 SECOND_based
 ```bash
 $ cd SE-SSD  
