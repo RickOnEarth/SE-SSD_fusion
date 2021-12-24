@@ -135,7 +135,7 @@ test_cfg = dict(
         nms_post_max_size=100,
         nms_iou_threshold=0.5,         #nms_iou_threshold=0.01,
     ),
-    score_threshold=0.05,               #score_threshold=0.3,#score_threshold=0.05,
+    score_threshold=0.3,               #for predict
     post_center_limit_range=[0, -40.0, -5.0, 70.4, 40.0, 5.0],
     max_per_img=100,
 )
@@ -301,7 +301,7 @@ work_dir = "/mengxing/LiDAR_Detection/SE-SSD/model_dir/pointpillars/" + TAG
 # load_from = "/xxx/xxx/xxx/epoch_60.pth"
 #load_from = "/mnt/proj50/zhengwu/saved_model/KITTI/proj52/megvii/second/pre_trained_model_2/epoch_60.pth"
 #load_from = "/mengxing/LiDAR_Detection/SE-SSD/model_dir/second/pretrained_model/se-ssd-model_github.pth"
-load_from = "/mengxing/LiDAR_Detection/SE-SSD/model_dir/pointpillars/pretrained_model/epoch_3.pth"         #for training
+load_from = "/mengxing/LiDAR_Detection/SE-SSD/model_dir/pointpillars/pretrained_model/epoch_60.pth"         #for training
 #load_from = None
 resume_from = None
 workflow = [("train", 60), ("val", 1)] if my_paras['enable_ssl'] else [("train", 60), ("val", 1)]

@@ -1,19 +1,32 @@
-## SECOND_based_SE-SSD_CLOCs_fusion  
+##SE-SSD_CLOCs_fusion  
 
-Train
+### Train
+SECOND_based
 ```bash
 $ cd SE-SSD  
-$ python tools/MX_sec_fusion_train.py --config=examples/second/configs/MX_fusion_train_config.py --checkpoint=epoch_60.pth
-
+$ python tools/MX_fusion_train.py --config=examples/second/configs/MX_fusion_train_config.py --checkpoint=epoch_60.pth
 ```
-
-Eval
+pointpillars_based
 ```bash
 $ cd SE-SSD  
-$ python tools/MX_sec_fusion_test.py --config=examples/second/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
+$ python tools/MX_fusion_train.py --config=examples/point_pillars/configs/MX_fusion_train_config.py --checkpoint=epoch_60.pth
 ```
+
+###Eval  
+SECOND_based
+```bash
+$ cd SE-SSD  
+$ python tools/MX_fusion_test.py --config=examples/second/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
+```
+pointpillars_based
+```bash
+$ cd SE-SSD  
+$ python tools/MX_fusion_test.py --config=examples/point_pillars/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
+```
+
+
 ### 2021-12-24
-fusion_layer-40832.tckpt results:  
+SECOND_based (fusion_layer-40832.tckpt)
 ```text
 Evaluation official_AP_40: car AP(Average Precision)@0.70, 0.70, 0.70:
 bbox AP:99.61, 95.94, 93.52

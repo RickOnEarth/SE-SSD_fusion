@@ -1,5 +1,8 @@
 """
-python tools/MX_sec_fusion_train.py --config=examples/second/configs/MX_fusion_train_config.py --checkpoint=epoch_60.pth
+SECOND_based:
+python tools/MX_fusion_test.py --config=examples/second/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
+pointpillars_based:
+python tools/MX_fusion_test.py --config=examples/point_pillars/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
 """
 import argparse
 import logging
@@ -28,17 +31,9 @@ from tqdm import tqdm
 from det3d.torchie.parallel import collate, collate_kitti
 from torch.utils.data import DataLoader
 
-###### fusion related####
 from fusion.preprocess_for_fusion import preprocess_for_fusion
 from fusion.d2_reader import detection_2d_reader
 from fusion.models import fusion
-from fusion.utils.eval import d3_box_overlap
-import torchplus
-import numpy as np
-from pytorch.builder import (lr_scheduler_builder, optimizer_builder)
-from pytorch.core.losses import SigmoidFocalClassificationLoss
-from det3d.core.bbox import box_torch_ops, box_np_ops
-
 
 def get_dataset_ids(mode='val'):
     assert mode in ['test', 'val', 'trainval', 'val']
@@ -248,7 +243,7 @@ def main():
     dataset = build_dataset(cfg.data.test)
     batch_size = cfg.data.samples_per_gpu
     num_workers = cfg.data.workers_per_gpu
-    data_loader = DataLoader(dataset, batch_size=batch_size, sampler=None, num_workers=num_workers, collate_fn=collate_kitti, shuffle=True,)
+    data_loader = DataLoader(dataset, batch_size=batch_size, sampler=None, num_workers=num_workers, collate_fn=collate_kitti, shuffle=False,)
 
     # build the model and load checkpoint
     model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
@@ -267,126 +262,50 @@ def main():
     model.cuda()
     model.eval()
 
-    ########### Build fusion layer #################
     fusion_layer = fusion.fusion()
-    #fusion_layer.load_state_dict(torch.load('/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_second/pretrained/fusion_layer-11136.tckpt'))
+    fusion_layer.load_state_dict(torch.load(cfg.fusion_test_cfg.load_from))
     fusion_layer.cuda()
-    fusion_layer.train()
-
-    #################### loss ######################
-    focal_loss = SigmoidFocalClassificationLoss()
-    cls_loss_sum = 0
-
-    ############### Build Optimizer ###############
-    optimizer_cfg = cfg.fusion_cfg.optimizer
-    loss_scale = cfg.fusion_cfg.loss_scale_factor
-    assert cfg.fusion_cfg.enable_mixed_precision is False
-    optimizer = optimizer_builder.build(optimizer_cfg, fusion_layer, mixed=cfg.fusion_cfg.enable_mixed_precision, loss_scale=loss_scale)
-    lr_scheduler = lr_scheduler_builder.build(optimizer_cfg, optimizer, cfg.fusion_cfg.steps)
+    fusion_layer.eval()
 
     cpu_device = torch.device("cpu")
 
-    total_loop = cfg.fusion_cfg.steps // cfg.fusion_cfg.steps_per_eval + 1
-    optimizer.zero_grad()
-    for l in range(total_loop):
+    results_dict = {}
+    if args.eval_id is None:
         for i, batch in enumerate(data_loader):
+            if i == 1:
+                prog_bar = torchie.ProgressBar(len(data_loader.dataset) - 1)
             example = example_to_device(batch, device=device)
-
             with torch.no_grad():
                 middle_outputs = model(example, return_loss=False, rescale=True)
             processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs)
 
-            grid_width = middle_outputs[0]['cls_preds'].shape[1]
-            grid_height = middle_outputs[0]['cls_preds'].shape[2]
-            num_anchors = grid_width * grid_height * 2               #SECOND:70400，pointpillars:107136
+            anchor_map_width = middle_outputs[0]['cls_preds'].shape[1]
+            anchor_map_height = middle_outputs[0]['cls_preds'].shape[2]
+            num_anchors = anchor_map_width * anchor_map_height * 2               #SECOND:70400，pointpillars:107136
             fusion_cls_preds, flag = fusion_layer(non_empty_iou_test_tensor.cuda(), non_empty_tensor_index_tensor.cuda(), num_anchors)
-            fusion_cls_preds_reshape = fusion_cls_preds.reshape(1, grid_width, grid_height, 2)      #SECOND：(1,200,176,2) #pointpillars:((1,248,216,2))
 
-            ############ loss calculation #############
-            #只考虑bs=1的情况,且单分类Car的情况
-            d3_gt_boxes = example['annos'][0]['boxes']
-            mask = example['annos'][0]['names']=='Car'
-            d3_gt_boxes = d3_gt_boxes[mask]
+            fusion_cls_preds_reshape = fusion_cls_preds.reshape(1, anchor_map_width, anchor_map_height, 2)      #SECOND：(1,200,176,2) #pointpillars:((1,248,216,2))
+            middle_outputs[0].update({'cls_preds':fusion_cls_preds_reshape})
 
-            if d3_gt_boxes.shape[0] == 0:
-                target_for_fusion = np.zeros((1, num_anchors, 1))
-                positives = torch.zeros(1, num_anchors).type(torch.float32).cuda()
-                negatives = torch.zeros(1, num_anchors).type(torch.float32).cuda()
-                negatives[:, :] = 1
-            else:                                                                                   #gt数量少，用cpu算吧
-                d3_gt_boxes_camera = box_np_ops.box_lidar_to_camera(
-                    d3_gt_boxes, example['calib']['rect'][0].cpu().numpy(), example['calib']['Trv2c'][0].cpu().numpy())
+            outputs = model.bbox_head.predict(example, middle_outputs, model.test_cfg)
+            for output in outputs:                          # output.keys(): ['box3d_lidar', 'scores', 'label_preds', 'metadata']
+                token = output["metadata"]["token"]         # token should be the image_id
+                for k, v in output.items():
+                    if k not in ["metadata",]:
+                        output[k] = v.to(cpu_device)
+                results_dict.update({token: output,})
 
+            if i >= 1:
+                prog_bar.update()
 
-                d3_gt_boxes_camera_bev = d3_gt_boxes_camera[:,[0,2,3,5,6]]
-                ###### predicted bev boxes
-                pred_3d_box = processed_preds_dict["box3d_camera"]
-                pred_bev_box = pred_3d_box[:,[0,2,3,5,6]]
-                #iou_bev = bev_box_overlap(d3_gt_boxes_camera_bev.detach().cpu().numpy(), pred_bev_box.detach().cpu().numpy(), criterion=-1)
-                iou_bev = d3_box_overlap(d3_gt_boxes_camera, pred_3d_box.squeeze().detach().cpu().numpy(), criterion=-1)
-                iou_bev_max = np.amax(iou_bev,axis=0)
+        print("inference done!")
+        print("evaluating...")
+        eval_result_dict, detections = dataset.evaluation(results_dict, '/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_second/pretrained')
+        for k, v in eval_result_dict["results"].items():
+            print(f"Evaluation {k}: {v}")
 
-                target_for_fusion = ((iou_bev_max >= 0.7)*1).reshape(1,-1,1)
-                positive_index = ((iou_bev_max >= 0.7)*1).reshape(1,-1)
-                positives = torch.from_numpy(positive_index).type(torch.float32).cuda()
-                negative_index = ((iou_bev_max <= 0.5)*1).reshape(1,-1)
-                negatives = torch.from_numpy(negative_index).type(torch.float32).cuda()
-
-            one_hot_targets = torch.from_numpy(target_for_fusion).type(torch.float32).cuda()
-            negative_cls_weights = negatives.type(torch.float32) * 1.0
-            cls_weights = negative_cls_weights + 1.0 * positives.type(torch.float32)
-            pos_normalizer = positives.sum(1, keepdim=True).type(torch.float32)
-            cls_weights /= torch.clamp(pos_normalizer, min=1.0)
-
-            if flag == 1:
-                cls_losses = focal_loss._compute_loss(fusion_cls_preds, one_hot_targets, cls_weights.cuda())  # [N, M]
-                cls_losses_reduced = cls_losses.sum() / 1                                              #batch_size=1
-                cls_loss_sum = cls_loss_sum + cls_losses_reduced
-
-                cls_losses_reduced.backward()
-                optimizer.step()
-                optimizer.zero_grad()
-                print('epoch: ', l+1, ' step: ', i+1, ' cls_losses_reduced: ', cls_losses_reduced)
-
-            # import pdb
-            # pdb.set_trace()
-        torchplus.train.save_models(cfg.fusion_cfg.checkpoint_saved_dir, [fusion_layer, optimizer],
-                                    len(data_loader) * (l + 1))
-        print("end epoch")
-
-
-    #
-    # results_dict = {}
-    # for i, batch in enumerate(data_loader):
-    #     if i == 1:
-    #         prog_bar = torchie.ProgressBar(len(data_loader.dataset) - 1)
-    #     example = example_to_device(batch, device=device)
-    #     with torch.no_grad():
-    #         middle_outputs = model(example, return_loss=False, rescale=True)
-    #     processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs)
-    #
-    #     grid_width = middle_outputs[0]['cls_preds'].shape[1]
-    #     grid_height = middle_outputs[0]['cls_preds'].shape[2]
-    #     num_anchors = grid_width * grid_height * 2               #SECOND:70400，pointpillars:107136
-    #     fusion_cls_preds, flag = fusion_layer(non_empty_iou_test_tensor.cuda(), non_empty_tensor_index_tensor.cuda(), num_anchors)
-    #
-    #     fusion_cls_preds_reshape = fusion_cls_preds.reshape(1, grid_width, grid_height, 2)      #SECOND：(1,200,176,2) #pointpillars:((1,248,216,2))
-    #     middle_outputs[0].update({'cls_preds':fusion_cls_preds_reshape})
-    #     with torch.no_grad():
-    #         outputs = model.bbox_head.predict(example, middle_outputs, model.test_cfg)
-    #     for output in outputs:                          # output.keys(): ['box3d_lidar', 'scores', 'label_preds', 'metadata']
-    #         token = output["metadata"]["token"]         # token should be the image_id
-    #         for k, v in output.items():
-    #             if k not in ["metadata",]:
-    #                 output[k] = v.to(cpu_device)
-    #         results_dict.update({token: output,})
-    #
-    #     if i >= 1:
-    #         prog_bar.update()
-    #
-    #     import pdb
-    #     pdb.set_trace()
-    # print("inference done!")
+        for k, v in eval_result_dict["results_2"].items():
+            print(f"Evaluation {k}: {v}")
 
 if __name__ == "__main__":
     main()

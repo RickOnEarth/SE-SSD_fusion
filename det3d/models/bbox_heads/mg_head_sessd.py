@@ -964,7 +964,8 @@ class MultiGroupHead(nn.Module):
 
             # SCORE_THRESHOLD: REMOVE those boxes lower than 0.3.
             if test_cfg.score_threshold > 0.0:
-                thresh = self.thresh
+                #thresh = self.thresh
+                thresh = test_cfg.score_threshold
                 top_scores_keep = top_scores >= thresh
                 top_scores = top_scores.masked_select(top_scores_keep)
 
@@ -1650,7 +1651,8 @@ class MultiGroupHead_MX_PP(nn.Module):
 
             # SCORE_THRESHOLD: REMOVE those boxes lower than 0.3.
             if test_cfg.score_threshold > 0.0:
-                thresh = self.thresh
+                #thresh = self.thresh
+                thresh = test_cfg.score_threshold
                 top_scores_keep = top_scores >= thresh
                 top_scores = top_scores.masked_select(top_scores_keep)
 
