@@ -21,10 +21,9 @@ box_coder = dict(type="ground_box3d_coder", n_dim=7, linear_dim=False, encode_an
 # exp_sesssd_release_v1_0: default settings of sesssd
 
 
-
 # torch.set_printoptions(precision=4, sci_mode=False)
 my_paras = dict(
-    batch_size=4,   #4
+    batch_size=1,   #4
     data_mode="train",        # "train" or "trainval": the set to train the model;
     enable_ssl=True,         # Ensure "False" in CIA-SSD training
     eval_training_set=False,  # True: eval on "data_mode" set; False: eval on validation set.[Ensure "False" in training; Switch in Testing]
@@ -44,7 +43,7 @@ my_paras = dict(
 
 # model settings
 model = dict(
-    type="VoxelNet",
+    type="VoxelNet_FUSION_MX",
     pretrained=None,
     reader=dict(type="VoxelFeatureExtractorV3", num_input_features=4, norm_cfg=norm_cfg,),
     backbone=dict(type="SpMiddleFHD", num_input_features=4, ds_factor=8, norm_cfg=norm_cfg,),
@@ -202,7 +201,9 @@ training_pipeline = test_pipeline if my_paras['eval_training_set'] else train_pi
 data_root = data_root_prefix + "/kitti_se-ssd"
 train_anno = data_root_prefix + "/kitti_se-ssd/kitti_infos_" + my_paras['data_mode'] + ".pkl"
 val_anno = data_root_prefix + "/kitti_se-ssd/kitti_infos_val.pkl"
-test_anno = data_root_prefix + "/kitti_se-ssd/kitti_infos_test.pkl"
+
+test_anno = data_root_prefix + "/kitti_se-ssd/kitti_infos_train.pkl"            #!!!!!!!!!
+
 trainval_anno = data_root_prefix + "/kitti_se-ssd/kitti_infos_trainval.pkl"
 
 data = dict(
@@ -269,6 +270,7 @@ total_epochs = 60
 device_ids = range(8)
 dist_params = dict(backend="nccl", init_method="env://")
 log_level = "INFO"
+
 TAG = 'pretrained_model'    #'work_dir'
 work_dir = "/mengxing/LiDAR_Detection/SE-SSD/model_dir/second/" + TAG
 # load_from: "path of pre-trained checkpoint to initialize both teacher & student, e.g., CIA-SSD pre-trained model"
@@ -281,4 +283,32 @@ resume_from = None
 workflow = [("train", 60), ("val", 1)] if my_paras['enable_ssl'] else [("train", 60), ("val", 1)]
 save_file = False if TAG == "debug" or TAG == "exp_debug" or Path(work_dir, "Det3D").is_dir() else True
 
-
+fusion_cfg = dict(
+    optimizer=dict(
+        optimizer_type='adam_optimizer',
+        adam_optimizer=dict(
+            learning_rate=dict(
+                lr_type='one_cycle',
+                one_cycle=dict(
+                    lr_max=0.003,
+                    moms=[0.95, 0.85],
+                    div_factor=10.0,  # original 10
+                    pct_start=0.4,
+                )
+            ),
+            weight_decay=0.01,
+            amsgrad=3,                          #???
+        ),
+        fixed_weight_decay=True,
+        use_moving_average=False
+    ),
+    steps=37120,  # 112215 #113715 #111360 # 619 * 50, super converge. increase this to achieve slightly better results original 30950
+    steps_per_eval=3712,  # 7481 # 619 * 5
+    save_checkpoints_secs=1800,  # half hour 1800
+    save_summary_steps=10,
+    enable_mixed_precision=False,  # for fp16 training, don't use this.
+    loss_scale_factor=512.0,
+    clear_metrics_every_epoch=True,
+    checkpoint_saved_dir='/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_second/work_dir'
+    #detection_2d_path: "../d2_detection_data"
+)

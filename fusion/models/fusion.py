@@ -43,12 +43,12 @@ class fusion(nn.Module):
         t1 = time.time()
         flag = -1
         if tensor_index[0,0] == -1:
-            out_1 = torch.zeros(1, 200, num,dtype = input_1.dtype,device = input_1.device)
+            out_1 = torch.zeros(1, 200, num_anchors, dtype = input_1.dtype,device = input_1.device)
             out_1[:,:,:] = -9999999
             flag = 0
         else:
             x = self.fuse_2d_3d(input_1)
-            out_1 = torch.zeros(1, 200, num_anchors,dtype = input_1.dtype,device = input_1.device)
+            out_1 = torch.zeros(1, 200, num_anchors, dtype = input_1.dtype,device = input_1.device)
             out_1[:,:,:] = -9999999
             out_1[:,tensor_index[:,0],tensor_index[:,1]] = x[0,:,0,:]
             flag = 1
@@ -59,8 +59,8 @@ class fusion(nn.Module):
         torch.cuda.synchronize()
         self._total_forward_time += time.time() - t1
         self._total_inference_count += 1
-        print("avg fusion nn time: ", self._total_forward_time / self._total_inference_count * 1000)
+        #print("avg fusion nn time: ", self._total_forward_time / self._total_inference_count * 1000)
 
         delta_t = time.time() - t1
-        print("fusion layer forward_time: ", delta_t * 1000)
+        #print("fusion layer forward_time: ", delta_t * 1000)
         return x,flag
