@@ -352,7 +352,10 @@ class KittiDataset(PointCloudDataset):
                     dense_voxel_map, self.anchors_bv, voxel_size, pc_range, grid_size)
                 anchors_mask = anchors_area > self.anchor_area_threshold
                 data['anchors_mask'] = DC(to_tensor(anchors_mask.astype(np.uint8)))
-
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
             # filter gt_bbox out of range
             bv_range = self.generator.point_cloud_range[[0, 1, 3, 4]]
             mask = filter_gt_box_outside_range(gt_bboxes, bv_range)

@@ -409,9 +409,12 @@ def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
 def project_to_image(points_3d, proj_mat):
     points_num = list(points_3d.shape)[:-1]
     points_shape = np.concatenate([points_num, [1]], axis=0).tolist()
-    points_4 = torch.cat(
-        [points_3d, torch.zeros(*points_shape).type_as(points_3d)], dim=-1
-    )
+    # points_4 = torch.cat(
+    #     [points_3d, torch.zeros(*points_shape).type_as(points_3d)], dim=-1
+    # )
+    #MX
+    col_4th = torch.zeros(*points_shape, dtype=points_3d.dtype, device=points_3d.device)
+    points_4 = torch.cat([points_3d, col_4th], dim=-1)
     # point_2d = points_4 @ tf.transpose(proj_mat, [1, 0])
     point_2d = torch.matmul(points_4, proj_mat.t())
     point_2d_res = point_2d[..., :2] / point_2d[..., 2:3]
@@ -427,7 +430,10 @@ def camera_to_lidar(points, r_rect, velo2cam):
 
 def lidar_to_camera(points, r_rect, velo2cam):
     num_points = points.shape[0]
-    points = torch.cat([points, torch.ones(num_points, 1).type_as(points)], dim=-1)
+    #points = torch.cat([points, torch.ones(num_points, 1).type_as(points)], dim=-1)
+    # MX
+    points = torch.cat(
+        [points, torch.ones(num_points, 1, dtype=points.dtype, device=points.device)], dim=-1)
     camera_points = points @ (r_rect @ velo2cam).t()
     return camera_points[..., :3]
 

@@ -56,11 +56,4 @@ class fusion(nn.Module):
         #x, _ = torch.max(out_1,1)
         x = x.squeeze().reshape(1,-1,1)
 
-        torch.cuda.synchronize()
-        self._total_forward_time += time.time() - t1
-        self._total_inference_count += 1
-        #print("avg fusion nn time: ", self._total_forward_time / self._total_inference_count * 1000)
-
-        delta_t = time.time() - t1
-        #print("fusion layer forward_time: ", delta_t * 1000)
         return x,flag

@@ -194,5 +194,5 @@ workflow = [("train", 60), ("val", 1)] if my_paras['enable_ssl'] else [("train",
 save_file = False if TAG == "debug" or TAG == "exp_debug" or Path(work_dir, "Det3D").is_dir() else True
 
 fusion_test_cfg = dict(
-    load_from='/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_pointpillars/pretrained/fusion_layer-40832.tckpt'
+    load_from='/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_pointpillars/pretrained/fusion_layer-40832.tckpt' #fusion_layer-40832.tckpt
 )

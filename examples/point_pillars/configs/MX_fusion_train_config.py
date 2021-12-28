@@ -213,7 +213,7 @@ fusion_cfg = dict(
         fixed_weight_decay=True,
         use_moving_average=False
     ),
-    steps=37120,  # 112215 #113715 #111360 # 619 * 50, super converge. increase this to achieve slightly better results original 30950
+    steps=37120*3,  # 112215 #113715 #111360 # 619 * 50, super converge. increase this to achieve slightly better results original 30950
     steps_per_eval=3712,  # 7481 # 619 * 5
     save_checkpoints_secs=1800,  # half hour 1800
     save_summary_steps=10,

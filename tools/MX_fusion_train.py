@@ -38,6 +38,7 @@ from fusion.models import fusion
 from fusion.utils.eval import d3_box_overlap
 import torchplus
 import numpy as np
+import time
 from pytorch.builder import (lr_scheduler_builder, optimizer_builder)
 from pytorch.core.losses import SigmoidFocalClassificationLoss
 from det3d.core.bbox import box_torch_ops, box_np_ops
@@ -297,13 +298,12 @@ def main():
 
             with torch.no_grad():
                 middle_outputs = model(example, return_loss=False, rescale=True)
-            processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs)
-
+            processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs, train_flag=True)
             anchor_map_width = middle_outputs[0]['cls_preds'].shape[1]
             anchor_map_height = middle_outputs[0]['cls_preds'].shape[2]
             num_anchors = anchor_map_width * anchor_map_height * 2               #SECOND:70400，pointpillars:107136
             fusion_cls_preds, flag = fusion_layer(non_empty_iou_test_tensor.cuda(), non_empty_tensor_index_tensor.cuda(), num_anchors)
-            fusion_cls_preds_reshape = fusion_cls_preds.reshape(1, anchor_map_width, anchor_map_height, 2)      #SECOND：(1,200,176,2) #pointpillars:((1,248,216,2))
+            # fusion_cls_preds_reshape = fusion_cls_preds.reshape(1, anchor_map_width, anchor_map_height, 2)      #SECOND：(1,200,176,2) #pointpillars:((1,248,216,2))
 
             ############ loss calculation #############
             #只考虑bs=1的情况,且单分类Car的情况
@@ -316,15 +316,12 @@ def main():
                 positives = torch.zeros(1, num_anchors).type(torch.float32).cuda()
                 negatives = torch.zeros(1, num_anchors).type(torch.float32).cuda()
                 negatives[:, :] = 1
-            else:                                                                                   #gt数量少，用cpu算吧
+            else:                                                                                   #gt数量少，这里先用cpu算
                 d3_gt_boxes_camera = box_np_ops.box_lidar_to_camera(
                     d3_gt_boxes, example['calib']['rect'][0].cpu().numpy(), example['calib']['Trv2c'][0].cpu().numpy())
 
-
-                d3_gt_boxes_camera_bev = d3_gt_boxes_camera[:,[0,2,3,5,6]]
                 ###### predicted bev boxes
                 pred_3d_box = processed_preds_dict["box3d_camera"]
-                pred_bev_box = pred_3d_box[:,[0,2,3,5,6]]
                 #iou_bev = bev_box_overlap(d3_gt_boxes_camera_bev.detach().cpu().numpy(), pred_bev_box.detach().cpu().numpy(), criterion=-1)
                 iou_bev = d3_box_overlap(d3_gt_boxes_camera, pred_3d_box.squeeze().detach().cpu().numpy(), criterion=-1)
                 iou_bev_max = np.amax(iou_bev,axis=0)

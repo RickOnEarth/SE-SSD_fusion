@@ -214,6 +214,8 @@ class Voxelization(object):
             num_points=num_points_per_voxel,
             num_voxels=num_voxels,
             shape=grid_size,
+            voxel_size=self.voxel_size,
+            pc_range=pc_range,
         )
 
         # voxelization of raw points without transformation
@@ -415,6 +417,21 @@ class AssignTarget_MX_PP(object):
         targets, targets_raw = {}, {}
         targets["anchors"] = [anchor_dict[self.target_class_names[i]]["anchors"].reshape([-1, 7]) for i, anchor_dict in enumerate(self.anchor_dicts_by_task)]
         targets_raw["anchors"] = targets["anchors"].copy()
+        #MX add "anchors_mask",only for task0
+        coors = res["lidar"]["voxels"]["coordinates"]
+        grid_size = res["lidar"]["voxels"]["shape"]
+        voxel_size = res["lidar"]["voxels"]["voxel_size"]
+        pc_range = res["lidar"]["voxels"]["pc_range"]
+        anchors_bv = box_np_ops.rbbox2d_to_near_bbox(
+            targets["anchors"][0][:, [0, 1, 3, 4, 6]])
+        dense_voxel_map = box_np_ops.sparse_sum_for_anchors_mask(
+            coors, tuple(grid_size[::-1][1:]))
+        dense_voxel_map = dense_voxel_map.cumsum(0)
+        dense_voxel_map = dense_voxel_map.cumsum(1)
+        anchors_area = box_np_ops.fused_get_anchors_area(
+            dense_voxel_map, anchors_bv, voxel_size, pc_range, grid_size)
+        anchors_mask = anchors_area > 0
+        targets.update({"anchors_mask": [anchors_mask],})
 
         # get gt labels of targeted classes; limit ry range in [-pi, pi].
         if res["mode"] == "train" and res['labeled']:

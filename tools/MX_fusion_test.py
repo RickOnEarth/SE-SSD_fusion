@@ -275,9 +275,11 @@ def main():
             if i == 1:
                 prog_bar = torchie.ProgressBar(len(data_loader.dataset) - 1)
             example = example_to_device(batch, device=device)
+
             with torch.no_grad():
                 middle_outputs = model(example, return_loss=False, rescale=True)
-            processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs)
+
+            processed_preds_dict, top_2d_predictions, non_empty_iou_test_tensor, non_empty_tensor_index_tensor = preprocess_for_fusion(model, example, middle_outputs, train_flag=False)
 
             anchor_map_width = middle_outputs[0]['cls_preds'].shape[1]
             anchor_map_height = middle_outputs[0]['cls_preds'].shape[2]
@@ -288,6 +290,7 @@ def main():
             middle_outputs[0].update({'cls_preds':fusion_cls_preds_reshape})
 
             outputs = model.bbox_head.predict(example, middle_outputs, model.test_cfg)
+
             for output in outputs:                          # output.keys(): ['box3d_lidar', 'scores', 'label_preds', 'metadata']
                 token = output["metadata"]["token"]         # token should be the image_id
                 for k, v in output.items():
