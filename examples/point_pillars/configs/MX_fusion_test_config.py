@@ -121,7 +121,7 @@ test_cfg = dict(
         nms_post_max_size=100,
         nms_iou_threshold=0.5,         #nms_iou_threshold=0.01,
     ),
-    score_threshold=0.3,               #0.05
+    score_threshold=0.2,               #0.3#0.05
     post_center_limit_range=[0, -40.0, -5.0, 70.4, 40.0, 5.0],
     max_per_img=100,
 )
@@ -194,5 +194,6 @@ workflow = [("train", 60), ("val", 1)] if my_paras['enable_ssl'] else [("train",
 save_file = False if TAG == "debug" or TAG == "exp_debug" or Path(work_dir, "Det3D").is_dir() else True
 
 fusion_test_cfg = dict(
-    load_from='/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_pointpillars/pretrained/fusion_layer-40832.tckpt' #fusion_layer-40832.tckpt
+    load_from='/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_pointpillars/work_dir/fusion_layer-111360.tckpt', #fusion_layer-40832.tckpt
+    results_save_dir='/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_pointpillars/results'
 )

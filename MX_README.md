@@ -23,6 +23,11 @@ pointpillars_based
 $ cd SE-SSD  
 $ python tools/MX_fusion_test.py --config=examples/point_pillars/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
 ```
+### inference and save txts
+add   
+```bash
+--predict_only=True
+```
 
 
 ### 2021-12-24

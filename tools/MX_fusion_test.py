@@ -3,6 +3,8 @@ SECOND_based:
 python tools/MX_fusion_test.py --config=examples/second/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
 pointpillars_based:
 python tools/MX_fusion_test.py --config=examples/point_pillars/configs/MX_fusion_test_config.py --checkpoint=epoch_60.pth
+inference and save txts, add:
+--predict_only=True
 """
 import argparse
 import logging
@@ -200,7 +202,7 @@ def parse_args():
     parser.add_argument("--eval", type=str, nargs="+", choices=["proposal", "proposal_fast", "bbox", "segm", "keypoints"], help="eval types",)
     parser.add_argument("--show", action="store_true", help="show results")
     parser.add_argument("--txt_result", default=True, help="save txt")
-    parser.add_argument("--save_dir", default=None, help="dir for writing some results")        #MX
+    parser.add_argument("--predict_only", default=False, help="inference only, save txt results")        #MX
     parser.add_argument("--tmpdir", help="tmp dir for writing some results")
     parser.add_argument("--launcher", choices=["none", "pytorch", "slurm", "mpi"], default="none",help="job launcher",)
     parser.add_argument("--local_rank", type=int, default=0)
@@ -302,13 +304,30 @@ def main():
                 prog_bar.update()
 
         print("inference done!")
-        print("evaluating...")
-        eval_result_dict, detections = dataset.evaluation(results_dict, '/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_second/pretrained')
-        for k, v in eval_result_dict["results"].items():
-            print(f"Evaluation {k}: {v}")
 
-        for k, v in eval_result_dict["results_2"].items():
-            print(f"Evaluation {k}: {v}")
+        ########## evaluation or save prediction results ###########
+        if not args.predict_only:
+            print("evaluating ...")
+            eval_result_dict, detections = dataset.evaluation(results_dict, '/mengxing/LiDAR_Detection/SE-SSD/model_dir/fusion_second/pretrained')
+            for k, v in eval_result_dict["results"].items():
+                print(f"Evaluation {k}: {v}")
+
+            for k, v in eval_result_dict["results_2"].items():
+                print(f"Evaluation {k}: {v}")
+        else:
+            dt_annos = dataset.convert_detection_to_kitti_annos(results_dict)
+            print("saving txt results ...")
+            save_path = osp.abspath(cfg.fusion_test_cfg.results_save_dir)
+            if not osp.isdir(save_path):
+                raise Exception("save_dir not exist")
+            save_path = osp.join(save_path, 'kitti_format')
+            if not osp.isdir(save_path):
+                os.makedirs(save_path)
+            for dt in dt_annos:
+                with open(os.path.join(save_path, "%010d.txt" % int(dt["metadata"]["token"])), "w") as fout:
+                    lines = kitti.annos_to_kitti_label(dt)
+                    for line in lines:
+                        fout.write(line + "\n")
 
 if __name__ == "__main__":
     main()

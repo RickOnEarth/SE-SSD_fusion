@@ -270,9 +270,7 @@ def main():
                 if not osp.isdir(save_path):
                     os.makedirs(save_path)
                 for dt in dt_annos:
-                    with open(
-                            os.path.join(save_path, "%010d.txt" % int(dt["metadata"]["token"])), "w"
-                    ) as fout:
+                    with open(os.path.join(save_path, "%010d.txt" % int(dt["metadata"]["token"])), "w") as fout:
                         lines = kitti.annos_to_kitti_label(dt)
                         for line in lines:
                             fout.write(line + "\n")
