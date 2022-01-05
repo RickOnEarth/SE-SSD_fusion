@@ -297,7 +297,7 @@ fusion_cfg = dict(
                 )
             ),
             weight_decay=0.01,
-            amsgrad=3,                          #???
+            amsgrad=0.0,                          #???
         ),
         fixed_weight_decay=True,
         use_moving_average=False
