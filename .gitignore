@@ -130,4 +130,5 @@ dmypy.json
 
 #self define
 d2_detection_data_yolo_nms_0.6/*
+d2_detection_data_test_set_0.6/*
 .idea
