@@ -1,4 +1,7 @@
 """
+SECOND：
+python tools/MX_inference_test.py --config=examples/second/configs/config.py --checkpoint=epoch_60.pth --save_dir=model_dir/second/pretrained_model/results/
+pointpillars:
 python tools/MX_inference_test.py --config=examples/point_pillars/configs/MX_config_inference.py --checkpoint=epoch_60.pth --save_dir=model_dir/pointpillars/pretrained_model/results/
 """
 import argparse
@@ -265,7 +268,7 @@ def main():
                 with open(save_path+'/'+args.out, 'wb') as f:
                     pickle.dump(dt_annos, f)
             if args.txt_result:
-                print("\ngenerating kitti-format results")
+                print("\ngenerating kitti-format results ...")
                 save_path = save_path+'/kitti_format'
                 if not osp.isdir(save_path):
                     os.makedirs(save_path)
